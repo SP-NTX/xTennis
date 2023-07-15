@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Twoja nazwa gry</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+        }
+
+        #debugInfo {
+            margin-top: 10px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.3.2/peerjs.min.js"></script>
+</head>
+<body>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+    <div id="debugInfo">
+        <span id="deltaT"></span>
+        <span id="ropeLengthValue"></span>
+        <span id="rotationSpeedValue"></span>
+    </div>
+
+    <button id="connectBtn">Connect</button>
+    <button id="displayCodeBtn">Display Connection Code</button>
+    <button id="spinBtn">Spin</button>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.3.2/peerjs.min.js"></script>
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const deltaT = document.getElementById("deltaT");
+        const ropeLengthValue = document.getElementById("ropeLengthValue");
+        const rotationSpeedValue = document.getElementById("rotationSpeedValue");
+        let rotationSpeed = 5;
+        const maxRopeLength = 200;
+        let speed = 0;
+        const despinSpeed = 0.01;
+        let prevTimestamp = performance.now();
+        let rotationAngle = 0;
+
+        function updateGame() {
+            const currentTimestamp = performance.now();
+            const deltaTime = currentTimestamp - prevTimestamp;
+            prevTimestamp = currentTimestamp;
+            let ropeLength = 0;
+            let rpm = rotationSpeed;
+
+            if (speed > 0) {
+                if (speed <= 7) {
+                    ropeLength = (speed / 7) * maxRopeLength;
+                } else {
+                    ropeLength = maxRopeLength;
+                    rpm += (speed - 7) * 2;
+                }
+            }
+
+            rotationAngle += (rpm * deltaTime) / 1000;
+            const ballX = centerX + Math.cos(rotationAngle + Math.PI) * ropeLength;
+            const ballY = centerY + Math.sin(rotationAngle + Math.PI) * ropeLength;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (speed > 0) {
+                const despin = deltaTime / 250 / (speed + 2);
+                speed = speed - despin;
+            }
+
+            const rodRadius = 5;
+            ctx.fillStyle = "black";
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, rodRadius, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.strokeStyle = "green";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.lineTo(ballX, ballY);
+            ctx.stroke();
+
+            const ballRadius = 10;
+            ctx.fillStyle = "green";
+            ctx.beginPath();
+            ctx.arc(ballX, ballY, ballRadius, 0, Math.PI * 2);
+            ctx.fill();
+
+            deltaT.textContent = `Delta Time: ${deltaTime.toFixed(1)}`;
+            ropeLengthValue.textContent = `Długość linki: ${ropeLength.toFixed(1)}`;
+
+            requestAnimationFrame(updateGame);
+        }
+
+        updateGame();
+
+        canvas.addEventListener("mousedown", handleMouseDown);
+        canvas.addEventListener("mouseup", handleMouseUp);
+        let isMousePressed = false;
+
+        function handleMouseDown() {
+            isMousePressed = true;
+            rotationSpeed = rotationSpeed * -1;
+        }
+
+        function handleMouseUp() {
+            isMousePressed = false;
+        }
+
+        canvas.addEventListener("mousemove", handleMouseMove);
+
+        function handleMouseMove(event) {
+            if (isMousePressed) {
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = event.clientX - rect.left;
+                const mouseY = event.clientY - rect.top;
+                const angle = Math.atan2(mouseY - centerY, mouseX - centerX);
+                sendGameState(angle);
+            }
+        }
+
+        let peer;
+        let peerId;
+        let activeConnection;
+
+        function createPeer() {
+            peer = new Peer();
+            peer.on("open", (id) => {
+                peerId = id;
+                console.log(`Your peer ID: ${peerId}`);
+            });
+            peer.on("connection", (connection) => {
+                handlePeerConnection(connection);
+            });
+        }
+
+        function connectToPeer(remotePeerId) {
+            const connection = peer.connect(remotePeerId);
+            handlePeerConnection(connection);
+        }
+
+        function handlePeerConnection(connection) {
+            activeConnection = connection;
+            sendGameState();
+            connection.on("data", (data) => {
+                handleDataChannelMessage(data);
+                let values = data.split("|");
+                    console.log(values[0])
+                    console.log(values[2])
+                    speed = values[0];
+                    rotationSpeed = values[2];
+            });
+        }
+
+        function handleDataChannelMessage(event) {
+            let message = event.data;
+
+            if (typeof message === "string") {
+                try {
+
+                } catch (error) {
+                    console.error("Error parsing data channel message:", error);
+                }
+            }
+        }
+
+        function sendGameState(angle) {
+            let gameState = [speed, rotationAngle, rotationSpeed].join("|");
+
+            if (activeConnection) {
+                activeConnection.send(gameState);
+            }
+        }
+
+        function setupConnection() {
+            createPeer();
+            const connectBtn = document.getElementById("connectBtn");
+            connectBtn.addEventListener("click", () => {
+                const remotePeerId = prompt("Enter the peer ID:");
+                if (remotePeerId) {
+                    connectToPeer(remotePeerId);
+                }
+            });
+            const displayCodeBtn = document.getElementById("displayCodeBtn");
+            displayCodeBtn.addEventListener("click", () => {
+                alert(`Your peer ID: ${peerId}`);
+            });
+            const spinBtn = document.getElementById("spinBtn");
+            spinBtn.addEventListener("click", () => {
+                speed = 7;
+                rotationSpeed = 5;
+                sendGameState();
+            });
+        }
+
+        setupConnection();
+        setInterval(sendGameState, 100);
+    </script>
+</body>
+</html>
